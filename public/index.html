@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TinyLink - Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900 p-4">
+  <div class="max-w-4xl mx-auto">
+    <header class="mb-6">
+      <h1 class="text-2xl font-semibold">TinyLink</h1>
+      <p class="text-sm text-gray-600">Shorten URLs and view stats</p>
+    </header>
+
+    <section class="mb-6 bg-white p-4 rounded shadow">
+      <form id="createForm" class="grid gap-2 sm:grid-cols-3 items-end">
+        <div class="sm:col-span-2">
+          <label class="text-sm">Target URL</label>
+          <input id="url" required placeholder="https://example.com/..." class="w-full border p-2 rounded"/>
+        </div>
+        <div>
+          <label class="text-sm">Custom code (optional)</label>
+          <input id="code" placeholder="6-8 chars" class="w-full border p-2 rounded"/>
+        </div>
+        <div class="sm:col-span-3 flex gap-2">
+          <button id="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Create</button>
+          <span id="formMsg" class="text-sm text-red-500"></span>
+        </div>
+      </form>
+    </section>
+
+    <section>
+      <div class="bg-white p-4 rounded shadow">
+        <h2 class="font-medium mb-2">All Links</h2>
+        <div id="linksContainer" class="overflow-auto">
+          <table id="linksTable" class="w-full text-sm">
+            <thead class="text-left bg-gray-100">
+              <tr><th class="p-2">Code</th><th class="p-2">Target URL</th><th class="p-2">Clicks</th><th class="p-2">Last clicked</th><th class="p-2">Actions</th></tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const baseUrl = location.origin;
+    async function fetchLinks() {
+      const res = await fetch('/api/links');
+      const data = await res.json();
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '';
+      data.forEach(l => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="p-2"><a class="text-blue-600" href="/${l.code}" target="_blank">${l.code}</a></td>
+          <td class="p-2">${truncate(l.url, 80)}</td>
+          <td class="p-2">${l.clicks}</td>
+          <td class="p-2">${l.lastClicked ? new Date(l.lastClicked).toLocaleString() : "-"}</td>
+          <td class="p-2">
+            <button data-code="${l.code}" class="deleteBtn px-2 py-1 bg-red-500 text-white rounded text-xs">Delete</button>
+            <button data-code="${l.code}" class="copyBtn px-2 py-1 bg-gray-200 rounded text-xs">Copy</button>
+            <a href="/code/${l.code}" class="px-2 py-1 bg-green-500 text-white rounded text-xs">Stats</a>
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      document.querySelectorAll('.deleteBtn').forEach(b => {
+        b.onclick = async (e) => {
+          const code = e.target.dataset.code;
+          if (!confirm('Delete ' + code + '?')) return;
+          const resp = await fetch('/api/links/' + code, { method: 'DELETE' });
+          if (resp.ok) fetchLinks();
+          else alert('Failed to delete');
+        };
+      });
+      document.querySelectorAll('.copyBtn').forEach(b => {
+        b.onclick = (e) => {
+          navigator.clipboard.writeText(`${baseUrl}/${e.target.dataset.code}`);
+          alert('Copied!');
+        };
+      });
+    }
+
+    function truncate(s, n) { return s.length > n ? s.slice(0,n-1) + '…' : s; }
+
+    document.getElementById('createForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const url = document.getElementById('url').value.trim();
+      const code = document.getElementById('code').value.trim();
+      document.getElementById('submit').disabled = true;
+      document.getElementById('formMsg').textContent = '';
+      try {
+        const res = await fetch('/api/links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, code: code || undefined })
+        });
+        if (res.status === 409) {
+          const j = await res.json();
+          document.getElementById('formMsg').textContent = j.error || 'Code exists';
+        } else if (!res.ok) {
+          const j = await res.json();
+          document.getElementById('formMsg').textContent = j.error || 'Error';
+        } else {
+          const j = await res.json();
+          alert('Created: ' + location.origin + '/' + j.code);
+          document.getElementById('url').value = '';
+          document.getElementById('code').value = '';
+          fetchLinks();
+        }
+      } catch (err) {
+        console.error(err);
+        document.getElementById('formMsg').textContent = 'Network error';
+      } finally {
+        document.getElementById('submit').disabled = false;
+      }
+    };
+
+    fetchLinks();
+  </script>
+</body>
+</html>
